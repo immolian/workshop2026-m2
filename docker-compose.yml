@@ -8,6 +8,13 @@
 #                    Aucune interface interne n'est exposée au réseau pédagogique.
 # =============================================================================
 
+# Réglages communs des healthchecks (fréquence, délai de grâce au démarrage)
+x-healthcheck-timing: &hc-timing
+  interval: 10s
+  timeout: 3s
+  retries: 3
+  start_period: 20s
+
 networks:
   edge-net:
     driver: bridge
@@ -92,7 +99,12 @@ services:
       - edge-net
       - backend-net
     depends_on:
-      - payment-api
+      payment-api:
+        condition: service_healthy
+    # Vérifie la chaîne complète WAF -> payment-api (le WAF n'a pas de route /health propre)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/health || exit 1"]
+      <<: *hc-timing
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -108,6 +120,9 @@ services:
       - prometheus-data:/prometheus
     networks:
       - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      <<: *hc-timing
     restart: unless-stopped
 
   alertmanager:
@@ -117,6 +132,9 @@ services:
       - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     networks:
       - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9093/-/healthy || exit 1"]
+      <<: *hc-timing
     restart: unless-stopped
 
   loki:
@@ -128,6 +146,11 @@ services:
       - loki-data:/loki
     networks:
       - backend-net
+    # /ready peut mettre ~15 s à passer au vert après le démarrage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3100/ready || exit 1"]
+      <<: *hc-timing
+      start_period: 40s
     restart: unless-stopped
 
   promtail:
@@ -141,7 +164,11 @@ services:
     networks:
       - backend-net
     depends_on:
-      - loki
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9080/ready || exit 1"]
+      <<: *hc-timing
     restart: unless-stopped
 
   grafana:
@@ -159,8 +186,13 @@ services:
       - edge-net
       - backend-net
     depends_on:
-      - prometheus
-      - loki
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      <<: *hc-timing
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -175,7 +207,11 @@ services:
     networks:
       - backend-net
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      <<: *hc-timing
     restart: unless-stopped
 
   # rag-assistant : P1 — décommenter quand le socle tourne
@@ -208,6 +244,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend-net
+    # /_ping est autorisé par défaut par le proxy (PING=1) et ne donne aucune info sensible
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2375/_ping || exit 1"]
+      <<: *hc-timing
     restart: unless-stopped
 
   remediation-engine:
@@ -222,7 +262,8 @@ services:
     networks:
       - backend-net
     depends_on:
-      - docker-socket-proxy
+      docker-socket-proxy:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
