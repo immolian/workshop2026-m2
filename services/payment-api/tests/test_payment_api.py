@@ -49,6 +49,14 @@ def test_transaction_negative_422():
     assert r.status_code == 422
 
 
+def test_canary_remediation_transaction_ok():
+    # Reproduit l'appel exact de la transaction canari du remediation-engine
+    # (preuve de reprise métier, Axe 1). Le compte canary-remediation doit exister.
+    r = client.post("/transaction",
+                    json={"account_id": "canary-remediation", "amount": 0.01, "currency": "EUR"})
+    assert r.status_code == 200 and r.json()["status"] == "ok" and r.json()["tx_id"]
+
+
 def test_auth_required():
     payment.app.dependency_overrides.clear()
     try:

@@ -33,7 +33,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./payment-dev.db")
 AUTH_URL = os.getenv("AUTH_URL", "http://auth:8000")          # fourni par compose
 AUTH_TIMEOUT = float(os.getenv("AUTH_TIMEOUT", "2.0"))
 # Comptes seedés au 1er démarrage (démo). Format id:solde
-SEED_ACCOUNTS = os.getenv("SEED_ACCOUNTS", "acc_demo:100000.00,acc_bob:500.00")
+# canary-remediation : compte utilisé par la transaction canari du
+# remediation-engine pour prouver la reprise métier (Axe 1). Solde élevé.
+SEED_ACCOUNTS = os.getenv(
+    "SEED_ACCOUNTS",
+    "acc_demo:100000.00,acc_bob:500.00,canary-remediation:1000000000.00")
 
 # --- Métriques FIGÉES (consommées par Prometheus -> alertes -> remédiation) ----
 # Noms et labels identiques au stub d'origine. On normalise seulement la VALEUR
