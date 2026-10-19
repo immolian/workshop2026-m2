@@ -1,0 +1,11 @@
+route:
+  receiver: remediation
+  group_wait: 2s
+  group_interval: 5s
+  repeat_interval: 1m
+
+receivers:
+  - name: remediation
+    webhook_configs:
+      - url: http://remediation-engine:8000/webhook
+        send_resolved: true

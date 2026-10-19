@@ -1,0 +1,6 @@
+# Chiffrement des secrets avec age. Générer une clé : age-keygen -o age.key
+# Renseigner la clé publique ci-dessous, puis :
+#   sops --encrypt secrets/payment.yaml > secrets/payment.sops.yaml
+creation_rules:
+  - path_regex: secrets/.*\.yaml$
+    age: "age1REMPLACER_PAR_VOTRE_CLE_PUBLIQUE"
