@@ -3,7 +3,9 @@ remediation-engine — owner: Tom
 Reçoit les alertes Alertmanager sur /webhook, décide une action, l'exécute via
 le docker-socket-proxy (JAMAIS le socket brut), puis PROUVE la reprise :
   1. /health de la cible répond "ok" (reprise technique)
-  2. transaction canari POST /transaction réussie (reprise métier)
+  2. transaction canari POST /transaction réussie, authentifiée par un JWT
+     obtenu sur auth /auth/login (reprise métier). Si la cible est auth
+     elle-même, la preuve métier est un login réussi.
 Un restart seul n'est PAS une preuve de reprise.
 
 Contrat d'alerte (annotations Prometheus) — FIGÉ :
@@ -72,7 +74,13 @@ HEALTH_POLL_INTERVAL = float(os.getenv("HEALTH_POLL_INTERVAL", "2"))
 CANARY_RETRIES = int(os.getenv("CANARY_RETRIES", "3"))
 RESTART_TIMEOUT = int(os.getenv("RESTART_TIMEOUT", "5"))
 # Transaction fictive, identifiable dans les logs/DB de payment-api.
+# Compte seedé par payment-api (solde élevé, ne se vide jamais).
 CANARY_PAYLOAD = {"account_id": "canary-remediation", "amount": 0.01, "currency": "EUR"}
+# payment-api exige un JWT : le canari se loggue sur auth comme un vrai client.
+AUTH_URL = os.getenv("AUTH_URL", "http://auth:8000").rstrip("/")
+AUTH_TARGET = os.getenv("AUTH_TARGET", "auth")   # nom du conteneur auth
+CANARY_USER = os.getenv("CANARY_USER", "demo")
+CANARY_PASSWORD = os.getenv("CANARY_PASSWORD", "demo123")
 SUPPORTED_ACTIONS = {"restart", "scale", "block"}
 
 
@@ -300,12 +308,39 @@ def verify_recovery(ctx: dict) -> tuple[bool, str]:
         emit("verify_health_pending", attempt=attempt, last_error=last_err, **ctx)
         time.sleep(HEALTH_POLL_INTERVAL)
 
-    # 2) Reprise métier : transaction canari
+    # 2) Reprise métier
+    if ctx["target"] == AUTH_TARGET:
+        # auth vient de redémarrer : la preuve métier est un login réussi
+        # (c'est le service qu'auth rend), pas une transaction de paiement.
+        for attempt in range(1, CANARY_RETRIES + 1):
+            try:
+                canary_token()
+                emit("verify_canary_ok", attempt=attempt, check="auth_login", **ctx)
+                return True, "ok"
+            except Exception as e:  # noqa: BLE001
+                emit("verify_canary_failed", logging.WARNING, attempt=attempt,
+                     check="auth_login", error=_err(e), **ctx)
+            time.sleep(HEALTH_POLL_INTERVAL)
+        return False, "auth_login_failed"
+
+    # Transaction canari authentifiée, comme un vrai client.
+    token = None
     for attempt in range(1, CANARY_RETRIES + 1):
         try:
+            if token is None:
+                try:
+                    token = canary_token()
+                except Exception as e:  # noqa: BLE001
+                    err = f"auth_token:{_err(e)}"
+                    emit("verify_canary_failed", logging.WARNING, attempt=attempt, error=err, **ctx)
+                    time.sleep(HEALTH_POLL_INTERVAL)
+                    continue
             t0 = time.monotonic()
-            r = requests.post(f"{base}/transaction", json=CANARY_PAYLOAD, timeout=5)
+            r = requests.post(f"{base}/transaction", json=CANARY_PAYLOAD,
+                              headers={"Authorization": f"Bearer {token}"}, timeout=5)
             latency_ms = round((time.monotonic() - t0) * 1000)
+            if r.status_code == 401:
+                token = None   # token expiré/rejeté : on se re-loggue à la tentative suivante
             body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
             if r.status_code == 200 and body.get("status") == "ok":
                 emit("verify_canary_ok", attempt=attempt, tx_id=body.get("tx_id"),
@@ -317,3 +352,17 @@ def verify_recovery(ctx: dict) -> tuple[bool, str]:
         emit("verify_canary_failed", logging.WARNING, attempt=attempt, error=err, **ctx)
         time.sleep(HEALTH_POLL_INTERVAL)
     return False, "canary_failed"
+
+
+def canary_token() -> str:
+    """Login du compte canari sur auth. Le token n'est JAMAIS journalisé."""
+    r = requests.post(f"{AUTH_URL}/auth/login",
+                      json={"username": CANARY_USER, "password": CANARY_PASSWORD}, timeout=5)
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+def _err(e: Exception) -> str:
+    # Code HTTP si dispo (ex. http_401), sinon le type d'exception — jamais le corps.
+    resp = getattr(e, "response", None)
+    return f"http_{resp.status_code}" if resp is not None else type(e).__name__
