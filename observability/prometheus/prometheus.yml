@@ -24,3 +24,8 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['ml-detector:8000']
+
+  - job_name: auth
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['auth:8000']
