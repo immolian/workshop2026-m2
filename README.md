@@ -1,4 +1,4 @@
-# PROJECT RESILIENCE-ALPHA — Workshop2026-M2-G\<n\>
+# PROJECT RESILIENCE-ALPHA — Workshop2026-M2
 
 Démonstrateur de **cyber-résilience et reprise autonome** sur une plateforme de
 paiement fictive. Objectif noté : une attaque déclenche une anomalie, le système
