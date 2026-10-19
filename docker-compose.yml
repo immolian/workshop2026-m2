@@ -216,6 +216,9 @@ services:
     environment:
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       DRY_RUN: ${DRY_RUN:-true}        # true = log seulement (défaut sûr J1)
+      AUTH_URL: http://auth:8000       # login du canari (JWT exigé par payment-api)
+      CANARY_USER: ${CANARY_USER:-demo}
+      CANARY_PASSWORD: ${CANARY_PASSWORD:-demo123}
     networks:
       - backend-net
     depends_on:
