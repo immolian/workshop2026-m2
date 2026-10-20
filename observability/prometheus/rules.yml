@@ -35,3 +35,17 @@ groups:
           action: restart
           target: payment-api
           summary: "Score d'anomalie ML élevé"
+
+      # Latence p95 élevée (signature DoS mesurée : payment-api met en file au lieu
+      # de renvoyer des 5xx, donc HighErrorRate ne déclenche pas ; p95 0,022 s -> 0,66 s)
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(request_latency_seconds_bucket[30s])) by (le)) > 0.5
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          action: restart
+          target: payment-api
+          summary: "Latence p95 > 0.5s sur payment-api (signature DoS)"
