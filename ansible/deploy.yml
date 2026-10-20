@@ -1,0 +1,140 @@
+---
+# =============================================================================
+# deploy.yml — Déploiement reproductible de RESILIENCE-ALPHA
+#
+# Part d'une Debian vierge (SSH + sudo) et aboutit à la stack complète,
+# tous conteneurs "healthy". Rejouable sans risque (idempotent).
+#
+#   Ansible  = prépare la machine (paquets, Docker, utilisateur, code, config)
+#   Compose  = décrit et lance les conteneurs (docker-compose.yml)
+#
+# Usage (depuis le dossier ansible/) :
+#   ansible-playbook deploy.yml -l ws26-docker-test -k -K
+#   (-k : mot de passe SSH, -K : mot de passe sudo)
+# =============================================================================
+
+- name: Déployer la plateforme RESILIENCE-ALPHA
+  hosts: docker_hosts
+  become: true
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # 1. Docker Engine + plugin Compose (dépôt officiel Docker)
+    # -------------------------------------------------------------------------
+    - name: Installer les prérequis
+      ansible.builtin.apt:
+        # python3-debian : requis par le module deb822_repository
+        name: [ca-certificates, curl, git, python3-debian]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Format deb822 + clé dédiée : méthode recommandée sur Debian 12/13
+    # (apt-key est supprimé des Debian récentes)
+    - name: Déclarer le dépôt Docker (avec sa clé de signature)
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: [deb]
+        uris: https://download.docker.com/linux/debian
+        suites: ["{{ ansible_facts['distribution_release'] }}"]
+        components: [stable]
+        architectures: ["{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"]
+        signed_by: https://download.docker.com/linux/debian/gpg
+        state: present
+
+    - name: Installer Docker Engine et Compose
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Démarrer Docker et l'activer au boot
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Ajouter l'utilisateur au groupe docker
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    # -------------------------------------------------------------------------
+    # 2. Code et configuration
+    # -------------------------------------------------------------------------
+    - name: Cloner / mettre à jour le dépôt
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+      become: true
+      become_user: "{{ ansible_user }}"
+
+    - name: Créer .env à partir de .env.example (sans écraser un .env existant)
+      ansible.builtin.copy:
+        src: "{{ app_dir }}/.env.example"
+        dest: "{{ app_dir }}/.env"
+        remote_src: true
+        force: false
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: Renseigner l'IP de l'hôte dans .env
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/.env"
+        regexp: '^HOST_IP='
+        line: "HOST_IP={{ ansible_host }}"
+
+    # -------------------------------------------------------------------------
+    # 3. Lancement de la stack et vérification
+    # -------------------------------------------------------------------------
+    - name: Construire et démarrer la stack
+      ansible.builtin.command:
+        cmd: docker compose up -d --build
+        chdir: "{{ app_dir }}"
+      register: compose_up
+      changed_when: >-
+        'Started' in compose_up.stderr or
+        'Created' in compose_up.stderr or
+        'Recreated' in compose_up.stderr
+
+    - name: Attendre que tous les conteneurs soient "healthy"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          total=$(docker compose ps -q | wc -l)
+          healthy=$(docker compose ps -q | xargs -r docker inspect -f '{{ "{{" }}.State.Health.Status{{ "}}" }}' | grep -c '^healthy$' || true)
+          echo "$healthy/$total"
+          [ "$total" -gt 0 ] && [ "$healthy" -eq "$total" ]
+        chdir: "{{ app_dir }}"
+        executable: /bin/bash
+      register: health
+      until: health.rc == 0
+      retries: "{{ health_retries }}"
+      delay: "{{ health_delay }}"
+      changed_when: false
+
+    - name: Vérifier l'API à travers le WAF
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/health"
+        return_content: true
+      register: api_health
+      failed_when: "'ok' not in api_health.content"
+
+    - name: Vérifier Grafana
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3000/api/health"
+
+    - name: Résumé
+      ansible.builtin.debug:
+        msg:
+          - "Conteneurs healthy : {{ health.stdout }}"
+          - "API (via WAF)      : http://{{ ansible_host }}:8080"
+          - "Grafana            : http://{{ ansible_host }}:3000"

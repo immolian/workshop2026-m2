@@ -1,0 +1,9 @@
+# Variables communes aux hôtes Docker
+repo_url: https://github.com/immolian/workshop2026-m2.git
+repo_version: main
+app_dir: "/home/{{ ansible_user }}/workshop2026-m2"
+
+# Délai max d'attente pour que tous les conteneurs soient "healthy"
+# (30 essais x 10 s = 5 min, le premier build est long)
+health_retries: 30
+health_delay: 10
