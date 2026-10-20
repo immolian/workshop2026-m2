@@ -9,7 +9,8 @@ transactions fictives, au rythme d'un usage calme (quelques req/s).
 À lancer depuis le PC Attaquant ou l'hôte, vers le point d'entrée public (le WAF).
 Dépendances : stdlib uniquement.
 
-ADAPTE si besoin aux schémas réels de ton API (voir les 3 commentaires # ADAPTER).
+Schémas alignés sur payment-api/auth (POST /transaction = account_id+amount,
+comptes acc_demo/acc_bob, login username/password).
 """
 import argparse
 import json
@@ -19,8 +20,14 @@ import time
 import urllib.request
 from urllib.error import HTTPError, URLError
 
-# ADAPTER : identifiants de comptes seedés tels que ton API les attend.
-SEEDED_ACCOUNTS = ["demo", "operator"]  # on laisse canary-remediation au canari
+# Identifiants de comptes seedés tels que payment-api les attend (voir SEED_ACCOUNTS
+# dans services/payment-api/app.py). Ce sont des ACCOUNT_ID, à ne pas confondre avec
+# les noms d'utilisateur du login (demo/operator). On laisse canary-remediation au
+# canari du remediation-engine.
+SEEDED_ACCOUNTS = ["acc_demo", "acc_bob"]
+# Compte à solde élevé (100 000) réservé aux POST /transaction, pour éviter que le
+# baseline ne se pollue de 402 "solde insuffisant" (acc_bob n'a que 500).
+TX_ACCOUNT = "acc_demo"
 
 
 def _post(url, body, token=None):
@@ -42,7 +49,7 @@ def _get(url, token=None):
 
 
 def login(base, user, password):
-    # ADAPTER : noms des champs du payload de login si différents.
+    # Aligné sur auth : payload {username, password}, réponse {access_token}.
     _, body = _post(f"{base}/auth/login",
                     {"username": user, "password": password})
     token = body.get("access_token") or body.get("token")
@@ -61,10 +68,10 @@ def run(base, user, password, rate, duration):
             if random.random() < 0.5:
                 _get(f"{base}/balance/{random.choice(SEEDED_ACCOUNTS)}", token)
             else:
-                # ADAPTER : schéma du POST /transaction.
+                # Schéma réel de payment-api : account_id + amount (currency -> EUR
+                # par défaut). Pas de from_account/to_account.
                 _post(f"{base}/transaction", {
-                    "from_account": "demo",
-                    "to_account": "operator",
+                    "account_id": TX_ACCOUNT,
                     "amount": round(random.uniform(1, 50), 2),
                 }, token)
             ok += 1
