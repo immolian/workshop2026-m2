@@ -58,8 +58,10 @@ def login(base, user, password):
     return token
 
 
-def run(base, user, password, rate, duration):
-    token = login(base, user, password)
+def run(base, user, password, rate, duration, token=None):
+    # Si un token est fourni (ex. auth non exposé via le WAF), on saute le login.
+    if not token:
+        token = login(base, user, password)
     interval = 1.0 / rate
     deadline = time.time() + duration
     ok = err = 0
@@ -90,12 +92,14 @@ def main():
                    help="URL de base via le WAF (ex : http://192.168.137.1:8080).")
     p.add_argument("--user", default="demo")
     p.add_argument("--password", default="demo123")
+    p.add_argument("--token", default=None,
+                   help="JWT déjà obtenu ; court-circuite le login (auth non exposé).")
     p.add_argument("--rate", type=float, default=2.0,
                    help="Requêtes/seconde (défaut 2).")
     p.add_argument("--duration", type=int, default=180,
                    help="Durée en secondes (défaut 180).")
     a = p.parse_args()
-    run(a.target, a.user, a.password, a.rate, a.duration)
+    run(a.target, a.user, a.password, a.rate, a.duration, a.token)
 
 
 if __name__ == "__main__":

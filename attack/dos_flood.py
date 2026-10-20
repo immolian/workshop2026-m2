@@ -42,6 +42,8 @@ def parse_args():
     ap.add_argument("--duration", type=int, default=int(os.getenv("DURATION", "30")))
     ap.add_argument("--token", default=os.getenv("TOKEN", ""),
                     help="JWT optionnel : exerce le chemin auth+DB (génère plus de 5xx).")
+    ap.add_argument("--account", default=os.getenv("FLOOD_ACCOUNT", "acc_demo"),
+                    help="Compte cible du POST /transaction (def: acc_demo, compte valide).")
     args = ap.parse_args()
     args.target = (args.target or args.target_pos
                    or os.getenv("TARGET", "http://127.0.0.1:8080"))
@@ -87,7 +89,7 @@ async def main():
     args = parse_args()
     assert_target_in_scope(args.target)                 # <-- garde-fou périmètre
     url = args.target.rstrip("/") + args.endpoint
-    body = {"account_id": "victim", "amount": 1.0} if args.method == "POST" else None
+    body = {"account_id": args.account, "amount": 1.0} if args.method == "POST" else None
     headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
     print(f"Flood {url} [{args.method}] | {args.concurrency} workers | {args.duration}s"
           f"{' | token fourni' if args.token else ''}\n")
