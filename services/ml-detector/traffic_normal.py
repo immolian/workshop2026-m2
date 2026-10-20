@@ -1,4 +1,4 @@
-"""Simule du trafic normal : connexion + transactions régulières sur acc_demo."""
+"""Simule du trafic normal : connexion + consultations/transactions sur acc_demo."""
 import asyncio
 import random
 import httpx
@@ -18,21 +18,15 @@ async def worker(client: httpx.AsyncClient, token: str):
     headers = {"Authorization": f"Bearer {token}"}
     while True:
         try:
-            await client.post(
-                f"{API_URL}/transaction",
-                json={"account_id": "acc_demo", "amount": round(random.uniform(1, 20), 2)},
-                headers=headers,
-                timeout=3,
-            )
+            # Uniquement de la consultation : ne débite jamais, pas de risque d'épuiser un solde.
+            await client.get(f"{API_URL}/balance/acc_bob", headers=headers, timeout=3)
         except Exception:
             pass
-        await asyncio.sleep(random.uniform(0.3, 1.5))  # rythme variable, réaliste
-
-
+        await asyncio.sleep(random.uniform(0.3, 1.5))
+        
 async def main():
     async with httpx.AsyncClient() as client:
         token = await get_token(client)
-        # 3 "utilisateurs" en parallèle, avec un peu de variation de rythme
         await asyncio.gather(*[worker(client, token) for _ in range(3)])
 
 
