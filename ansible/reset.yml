@@ -1,0 +1,148 @@
+---
+# =============================================================================
+# reset.yml — Remettre la plateforme dans un état propre pour rejouer la démo
+#
+# Deux modes (variable "mode") :
+#
+#   light (défaut) — reset MÉTIER, garde l'observabilité
+#     Recrée db, auth, payment-api, ml-detector, remediation-engine et purge
+#     UNIQUEMENT le volume de la base : comptes re-seedés, cooldown de la
+#     remédiation et score ML remis à zéro. L'historique Prometheus / Loki /
+#     Grafana est conservé (le dashboard garde sa période "avant").
+#     -> pour rejouer vite, et le jour de la démo / du Clip Chrono.
+#
+#   full — reset COMPLET (docker compose down -v)
+#     Purge TOUS les volumes (base, métriques, logs, Grafana) puis rebuild.
+#     -> pour les répétitions et le debug, état totalement neuf.
+#     Attention : Grafana repart avec le mot de passe défini dans .env.
+#
+# Dans les deux cas, la remédiation est remise en DRY_RUN=true (état sûr).
+# Pour la réarmer ensuite : mettre DRY_RUN=false dans .env puis
+#   docker compose up -d remediation-engine
+#
+# Usage (depuis le dossier ansible/) :
+#   ansible-playbook reset.yml -l ws26-docker -k                 # light
+#   ansible-playbook reset.yml -l ws26-docker -k -e mode=full    # complet
+# =============================================================================
+
+- name: Réinitialiser la plateforme RESILIENCE-ALPHA
+  hosts: docker_hosts
+  become: false # l'utilisateur est dans le groupe docker, sudo inutile
+
+  vars:
+    mode: light
+    business_services: [db, auth, payment-api, ml-detector, remediation-engine]
+
+  tasks:
+    - name: Vérifier le mode demandé
+      ansible.builtin.assert:
+        that: mode in ['light', 'full']
+        fail_msg: "mode doit valoir 'light' ou 'full' (reçu : {{ mode }})"
+        quiet: true
+
+    - name: Vérifier que la stack est bien déployée sur cet hôte
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/docker-compose.yml"
+      register: compose_file
+      failed_when: not compose_file.stat.exists
+
+    - name: Remettre la remédiation en mode sûr (DRY_RUN=true)
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/.env"
+        regexp: '^DRY_RUN='
+        line: DRY_RUN=true
+
+    # -------------------------------------------------------------------------
+    # Mode FULL : on efface tout et on reconstruit
+    # -------------------------------------------------------------------------
+    - name: "[full] Arrêter la stack et purger tous les volumes"
+      ansible.builtin.command:
+        cmd: docker compose down -v --remove-orphans
+        chdir: "{{ app_dir }}"
+      when: mode == 'full'
+      changed_when: true
+
+    - name: "[full] Reconstruire et redémarrer la stack"
+      ansible.builtin.command:
+        cmd: docker compose up -d --build
+        chdir: "{{ app_dir }}"
+      when: mode == 'full'
+      changed_when: true
+
+    # -------------------------------------------------------------------------
+    # Mode LIGHT : on ne touche qu'aux services métier et à la base
+    # -------------------------------------------------------------------------
+    - name: "[light] Récupérer le nom du projet Compose"
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail &&
+          docker compose config --format json
+          | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])'
+        chdir: "{{ app_dir }}"
+        executable: /bin/bash
+      register: compose_project
+      when: mode == 'light'
+      changed_when: false
+
+    - name: "[light] Supprimer les conteneurs métier"
+      ansible.builtin.command:
+        cmd: "docker compose rm --stop --force {{ business_services | join(' ') }}"
+        chdir: "{{ app_dir }}"
+      when: mode == 'light'
+      changed_when: true
+
+    - name: "[light] Purger le volume de la base (re-seed au redémarrage)"
+      ansible.builtin.command:
+        cmd: "docker volume rm {{ compose_project.stdout }}_db-data"
+      register: vol_rm
+      when: mode == 'light'
+      changed_when: vol_rm.rc == 0
+      failed_when: vol_rm.rc != 0 and 'no such volume' not in (vol_rm.stderr | lower)
+
+    - name: "[light] Redémarrer la stack (les services intacts ne bougent pas)"
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ app_dir }}"
+      when: mode == 'light'
+      changed_when: true
+
+    # -------------------------------------------------------------------------
+    # Vérification commune
+    # -------------------------------------------------------------------------
+    - name: Attendre que tous les conteneurs soient "healthy"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          total=$(docker compose ps -q | wc -l)
+          healthy=$(docker compose ps -q | xargs -r docker inspect -f '{{ "{{" }}.State.Health.Status{{ "}}" }}' | grep -c '^healthy$' || true)
+          echo "$healthy/$total"
+          [ "$total" -gt 0 ] && [ "$healthy" -eq "$total" ]
+        chdir: "{{ app_dir }}"
+        executable: /bin/bash
+      register: health
+      until: health.rc == 0
+      retries: "{{ health_retries }}"
+      delay: "{{ health_delay }}"
+      changed_when: false
+
+    - name: Vérifier l'API à travers le WAF
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/health"
+        return_content: true
+      register: api_health
+      failed_when: "'ok' not in api_health.content"
+
+    - name: Vérifier que la remédiation est bien désarmée
+      ansible.builtin.command:
+        cmd: docker compose exec -T remediation-engine printenv DRY_RUN
+        chdir: "{{ app_dir }}"
+      register: dry_run
+      changed_when: false
+      failed_when: dry_run.stdout | trim != 'true'
+
+    - name: Résumé
+      ansible.builtin.debug:
+        msg:
+          - "Reset {{ mode | upper }} terminé — conteneurs healthy : {{ health.stdout }}"
+          - "Remédiation : DRY_RUN={{ dry_run.stdout | trim }} (désarmée)"
+          - "Grafana : http://{{ ansible_host }}:3000"
