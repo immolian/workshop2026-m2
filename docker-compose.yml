@@ -39,7 +39,7 @@ services:
     container_name: db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-payment}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_sops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD requis — le définir dans .env}
       POSTGRES_DB: ${POSTGRES_DB:-payment}
     volumes:
       - db-data:/var/lib/postgresql/data
@@ -56,7 +56,7 @@ services:
     build: ./services/auth
     container_name: auth
     environment:
-      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_me}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET requis — le définir dans .env}
     networks:
       - backend-net
     healthcheck:
@@ -70,7 +70,7 @@ services:
     build: ./services/payment-api
     container_name: payment-api
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-payment}:${POSTGRES_PASSWORD:-changeme_in_sops}@db:5432/${POSTGRES_DB:-payment}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-payment}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD requis — le définir dans .env}@db:5432/${POSTGRES_DB:-payment}
       AUTH_URL: http://auth:8000
     networks:
       - backend-net          # atteignable UNIQUEMENT via le WAF, pas depuis l'hôte
@@ -175,7 +175,7 @@ services:
     image: grafana/grafana:11.2.0
     container_name: grafana
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD requis — le définir dans .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
       - "3000:3000"          # dashboard observé par le jury
