@@ -32,7 +32,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [auth] %(message)s")
 log = logging.getLogger("auth")
 
 # --- Configuration -------------------------------------------------------------
-JWT_SECRET = os.getenv("JWT_SECRET", "dev_secret_change_me")   # prod -> SOPS/Vault
+JWT_SECRET = os.getenv("JWT_SECRET")   # requis : aucune valeur de repli (secret hors dépôt)
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET est requis (aucune valeur par défaut). Le définir dans .env.")
 JWT_ALG = "HS256"
 JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", "3600"))
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////tmp/auth.db")
