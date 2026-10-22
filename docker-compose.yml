@@ -214,7 +214,9 @@ services:
       <<: *hc-timing
     restart: unless-stopped
 
-  # rag-assistant : P1 — décommenter quand le socle tourne
+  # RAG non déployé (Ollama absent) — voir services/rag-assistant/ (app.py, ask.py, ingest.py).
+  # Définition conservée pour référence ; ne PAS décommenter sans un Ollama joignable
+  # (dépendance OLLAMA_URL), sous peine d'un conteneur en échec au démarrage.
   # rag-assistant:
   #   build: ./services/rag-assistant
   #   container_name: rag-assistant
