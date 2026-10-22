@@ -27,6 +27,7 @@ dans [`docs/DEMO-runbook.md`](docs/DEMO-runbook.md) (source de vérité).
 | Cybersécurité | WAF (seule entrée), scénarios d'attaque | `services/frontend`, `attack/` |
 | Observabilité | Prometheus, Alertmanager, Loki, Promtail, Grafana | `observability/` |
 | IA / détection | `ml-detector` (IsolationForest) | `services/ml-detector` |
+| IA / assistance | `rag-assistant` — **code présent, non déployé** (Ollama absent) | `services/rag-assistant` |
 | Reprise autonome | `remediation-engine` + `docker-socket-proxy` | `services/remediation-engine` |
 | Industrialisation | Déploiement/reset reproductibles (Ansible) | `ansible/` |
 
@@ -100,6 +101,13 @@ docker compose ps                 # attendre que tous les services soient "healt
 Le premier build prend quelques minutes. `docker compose ps` doit afficher tous
 les conteneurs en `healthy` (healthchecks définis sur chaque service).
 
+> **Secrets** : `.env.example` fournit des **valeurs de démo** (lab fictif) qui
+> suffisent à lancer la stack telle quelle. **Aucun secret réel n'est versionné**
+> et le compose n'a aucune valeur de repli en dur : si une variable
+> (`JWT_SECRET`, `POSTGRES_PASSWORD`, `GRAFANA_PASSWORD`) est **vidée**, la stack
+> **refuse de démarrer**. En production : remplacer ces valeurs par des secrets
+> forts (gérés via SOPS), dans le `.env` local jamais commité.
+
 ### Option B — Ansible (reproductible, depuis une Debian vierge)
 
 Depuis le dossier `ansible/` (voir [`ansible/README.md`](ansible/README.md)) :
@@ -118,7 +126,7 @@ VM d'intégration `ws26-docker` (`10.0.40.114`) et une VM de test jetable.
 | Interface | URL | Exposé à l'hôte ? | Identifiants |
 |---|---|---|---|
 | API paiement (via WAF) | `http://<HOST_IP>:8080` | **oui** — seule entrée applicative | — |
-| Grafana (supervision) | `http://<HOST_IP>:3000` | **oui** — pour le jury | `admin` / `GRAFANA_PASSWORD` (`.env`, défaut `admin`) |
+| Grafana (supervision) | `http://<HOST_IP>:3000` | **oui** — pour le jury | `admin` / valeur de `GRAFANA_PASSWORD` du `.env` (démo : `demo-admin-lab`) |
 | DB, Prometheus, Alertmanager, Loki, `ml-detector`, remédiation, proxy Docker | — | **non** (réseau `backend-net` interne) | — |
 
 > `<HOST_IP>` = valeur de `HOST_IP` dans `.env`. La stack écoute sur toutes les
@@ -239,9 +247,13 @@ transaction fictive réussie après l'incident, **sans aucune action humaine**.
 - **Garde-fous du moteur** : **cooldown 60 s/cible** (anti restart-storm),
   **liste blanche** de cibles (`payment-api`, `auth` — une alerte visant `db` ou le
   proxy est refusée), et mode `DRY_RUN` sûr par défaut.
-- **Secrets** : aucun secret en clair. `.env` est **git-ignoré** ; **gitleaks** en
-  pré-commit (`.pre-commit-config.yaml`) bloque toute fuite ; chiffrement **SOPS/age**
-  configuré (`.sops.yaml`, clé à renseigner avant usage réel).
+- **Secrets** : **aucun secret réel versionné**. Le compose et le code n'ont
+  **aucune valeur de repli en dur** — la stack lit `JWT_SECRET`,
+  `POSTGRES_PASSWORD` et `GRAFANA_PASSWORD` depuis le `.env` local et **refuse de
+  démarrer** si l'un manque. `.env.example` ne contient que des **valeurs de démo**
+  (lab fictif). `.env` est **git-ignoré** ; **gitleaks** en pré-commit
+  (`.pre-commit-config.yaml`) bloque toute fuite ; chaîne **SOPS/age** amorcée
+  (`.sops.yaml`, clé `age` à renseigner avant usage réel).
 
 ### Risque résiduel connu (à reprendre dans l'EBIOS)
 
@@ -278,6 +290,7 @@ Le détail est documenté en tête de `services/remediation-engine/app.py`.
     ├── auth/                   # Authentification JWT HS256 (/auth/login, /auth/verify)
     ├── ml-detector/            # IsolationForest -> gauge anomaly_score (model.joblib, calibration)
     ├── remediation-engine/     # Reçoit les alertes, restart via proxy, PROUVE la reprise (canari)
+    ├── rag-assistant/          # Assistant RAG (app.py, ingest.py, ask.py) — NON déployé (Ollama absent)
     └── frontend/               # WAF nginx (reverse-proxy, seule entrée exposée)
 ```
 
@@ -289,7 +302,7 @@ Le détail est documenté en tête de `services/remediation-engine/app.py`.
 |---|---|---|
 | **Gabriel** | Dév + Red Team | `services/payment-api`, `services/auth`, `attack/` |
 | **Claire** | Infra / Observabilité | `observability/`, `ansible/`, `docker-compose.yml` |
-| **Mahalia** | IA / Data | `services/ml-detector` (+ `rag-assistant`, non déployé) |
+| **Mahalia** | IA / Data | `services/ml-detector` ; `services/rag-assistant` (code livré, non déployé — Ollama absent) |
 | **Tom** | Remédiation + Intégration + PM | `services/remediation-engine`, `services/frontend`, intégration |
 | **Mathilde** | Gouvernance | `docs/` (EBIOS, PCA/PRA, NIS2/DORA) |
 
@@ -304,9 +317,13 @@ Le détail est documenté en tête de `services/remediation-engine/app.py`.
   ≈ 0 erreur 5xx) : la détection repose sur la **latence** et le **ML**.
 - **`scale` et `block`** sont des `TODO` explicites dans le moteur (hors périmètre
   du sprint) ; seul `restart` est implémenté.
-- **`rag-assistant`** : prévu (service commenté dans le compose), non déployé.
-- **SOPS** : chaîne configurée mais clé `age` à renseigner — aucun secret réel
-  n'était à protéger pendant le sprint.
+- **`rag-assistant`** : le **code existe** (`app.py`, `ingest.py`, `ask.py` —
+  assistant RAG en lecture seule, documentation de l'équipe, sans accès privilégié)
+  mais le service **n'est pas déployé** : il dépend d'**Ollama** (modèle LLM +
+  embeddings via `langchain_ollama`), absent de l'environnement. Sa définition reste
+  commentée dans `docker-compose.yml` pour ne pas bloquer la stack.
+- **SOPS** : chaîne amorcée mais clé `age` à renseigner — les seuls secrets du
+  sprint sont des **valeurs de démo** (lab fictif), pas des secrets réels à protéger.
 - **`make`** n'est pas installé sur la VM : utiliser les commandes `docker compose`
   directes de ce README plutôt que les cibles du `Makefile`.
 - **Prochaines étapes** : durcissement WAF (CRS + rate-limit), authentification du
