@@ -1,31 +1,294 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Alerte active",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "5s",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{alertname}} ({{severity}})",
+        "tagKeys": "alertname",
+        "useValueForTime": false
+      },
+      {
+        "name": "Reprise confirmée",
+        "enable": true,
+        "iconColor": "green",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{container=\"remediation-engine\"} |= \"recovery_confirmed\"",
+        "titleFormat": "Reprise confirmée",
+        "tagKeys": ""
+      }
+    ]
+  },
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "title": "RESILIENCE-ALPHA — Supervision & reprise",
   "uid": "resilience-alpha",
-  "tags": ["workshop", "resilience"],
-  "templating": { "list": [] },
+  "tags": [
+    "workshop",
+    "resilience"
+  ],
+  "templating": {
+    "list": []
+  },
   "panels": [
     {
       "type": "stat",
-      "title": "État des services",
-      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Situation",
+      "description": "Rouge dès qu'une alerte de détection est active (pending/firing) ou qu'un service est DOWN.",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "up{job=\"payment-api\"}", "legendFormat": "payment-api", "datasource": { "type": "prometheus", "uid": "prometheus" } },
-        { "refId": "B", "expr": "up{job=\"auth\"}", "legendFormat": "auth", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true,
+          "expr": "(count(ALERTS{alertstate=~\"pending|firing\"}) or vector(0)) + (count(up{job=~\"payment-api|auth|ml-detector\"} == 0) or vector(0))",
+          "legendFormat": "alertes actives"
+        }
       ],
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "valueSize": 40
+        }
+      },
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NORMAL",
+                  "color": "green"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1,
+                "to": 1000,
+                "result": {
+                  "text": "INCIDENT",
+                  "color": "red"
+                }
+              }
+            }
           ],
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "État des services",
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"payment-api\"}",
+          "legendFormat": "payment-api",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "up{job=\"auth\"}",
+          "legendFormat": "auth",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "up{job=\"ml-detector\"}",
+          "legendFormat": "ml-detector",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "titleSize": 18,
+          "valueSize": 36
+        },
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Dernière reprise automatique",
+      "description": "Temps entre le début de la remédiation et la preuve de reprise (health + transaction canari).",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "queryType": "range",
+          "expr": "max(last_over_time({container=\"remediation-engine\"} |= \"recovery_confirmed\" | json | unwrap time_to_recover_s [$__range]))"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "text": {
+          "valueSize": 40
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "noValue": "aucune",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       }
@@ -33,26 +296,87 @@
     {
       "type": "timeseries",
       "title": "Taux de requêtes (req/s)",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 5 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(http_requests_total[30s]))", "legendFormat": "req/s", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total[30s]))",
+          "legendFormat": "req/s",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "type": "timeseries",
       "title": "Ratio d'erreurs 5xx (seuil HighErrorRate = 25%)",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 5 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(http_requests_total{status=~\"5..\"}[30s])) / sum(rate(http_requests_total[30s]))", "legendFormat": "ratio 5xx", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[30s])) / sum(rate(http_requests_total[30s]))",
+          "legendFormat": "ratio 5xx",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit", "min": 0, "max": 1,
-          "custom": { "drawStyle": "line", "fillOpacity": 20, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.25 } ] }
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
         },
         "overrides": []
       }
@@ -60,16 +384,50 @@
     {
       "type": "timeseries",
       "title": "Latence p95 (s)",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[30s])) by (le))", "legendFormat": "p95", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[30s])) by (le))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": { "drawStyle": "line", "fillOpacity": 10, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.5 } ] }
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          }
         },
         "overrides": []
       }
@@ -77,29 +435,90 @@
     {
       "type": "timeseries",
       "title": "Score d'anomalie ML (seuil = 0.8)",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "anomaly_score", "legendFormat": "anomaly_score", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+        {
+          "refId": "A",
+          "expr": "anomaly_score",
+          "legendFormat": "anomaly_score",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short", "min": 0, "max": 1,
-          "custom": { "drawStyle": "line", "fillOpacity": 20, "thresholdsStyle": { "mode": "line" } },
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.8 } ] }
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          }
         },
         "overrides": []
       }
     },
     {
       "type": "logs",
-      "title": "Timeline de remédiation (recovery_confirmed, cooldown, décisions)",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
-      "datasource": { "type": "loki", "uid": "loki" },
+      "title": "Timeline de remédiation (alerte → décision → action → vérification → reprise)",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
-        { "refId": "A", "expr": "{container=\"remediation-engine\"}", "datasource": { "type": "loki", "uid": "loki" } }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{container=\"remediation-engine\"} != \"GET /health\" | json | event=~\"alert_received|decision|action_started|action_done|action_failed|action_skipped_dry_run|verify_health_ok|verify_health_timeout|verify_canary_ok|verify_canary_failed|recovery_confirmed|recovery_failed|webhook_rejected\" | line_format \"{{.event}}{{ if .alertname }} · {{.alertname}}{{ end }}{{ if .decision }} · {{.decision}}{{ end }}{{ if .target }} → {{.target}}{{ end }}{{ if .reason }} ({{.reason}}){{ end }}{{ if .time_to_recover_s }} · reprise en {{.time_to_recover_s}} s{{ end }}\""
+        }
       ],
-      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "showLabels": false,
+        "showCommonLabels": false,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      }
     }
-  ]
+  ],
+  "timezone": "browser"
 }
